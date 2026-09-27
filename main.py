@@ -3,6 +3,7 @@ import json
 import time
 import threading
 import sys
+import re
 from datetime import datetime, timedelta
 import requests
 import feedparser
@@ -59,11 +60,11 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 TG_BASE_URL = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN
 
 # HORARIOS DE RÁFAGA (Hora Argentina UTC-3)
-MORNING_HOUR_ARG = 8   # 08:00 AM -> Edición Mañana
-EVENING_HOUR_ARG = 21  # 21:00 PM -> Edición Cierre
+MORNING_HOUR_ARG = 8   # 08:00 AM
+EVENING_HOUR_ARG = 21  # 21:00 PM
 
 # ------------------------------------------------------------------------------
-# FUENTES DE ALTA COBERTURA (MULTINICHO GLOBAL)
+# FUENTES DE ALTA SEÑAL
 # ------------------------------------------------------------------------------
 RSS_FEEDS = {
     "🤖 <b>IA & TECNOLOGÍA</b>": [
@@ -101,31 +102,62 @@ def save_json_file(filename, data):
         print(f"❌ Error al guardar {filename}: {e}", flush=True)
 
 # ------------------------------------------------------------------------------
-# OBTENCIÓN DE DATOS DE MERCADO EN TIEMPO REAL
+# OBTENCIÓN ROBUSTA DE MERCADOS EN TIEMPO REAL (BINANCE + FEAR & GREED)
 # ------------------------------------------------------------------------------
 def fetch_live_market_data():
+    headers = {"User-Agent": "Mozilla/5.0"}
+    btc_p, btc_c = 0.0, 0.0
+    eth_p, eth_c = 0.0, 0.0
+    sol_p, sol_c = 0.0, 0.0
+    fng_val, fng_class = "N/A", "N/A"
+
+    # Precios Cripto vía Binance API
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true"
-        res = requests.get(url, timeout=5).json()
-        btc_p = res.get("bitcoin", {}).get("usd", 0)
-        btc_c = res.get("bitcoin", {}).get("usd_24h_change", 0)
-        eth_p = res.get("ethereum", {}).get("usd", 0)
-        eth_c = res.get("ethereum", {}).get("usd_24h_change", 0)
-        sol_p = res.get("solana", {}).get("usd", 0)
-        
-        return (
-            f"📊 <b>MERCADOS & CRIPTO (EN VIVO)</b>\n"
-            f"▫️ <b>BTC:</b> ${btc_p:,.0f} ({btc_c:+.1f}%) | "
-            f"<b>ETH:</b> ${eth_p:,.0f} ({eth_c:+.1f}%) | "
-            f"<b>SOL:</b> ${sol_p:,.0f}\n"
-            f"▫️ <b>Enfoque del Día:</b> Rotación de capital hacia infraestructura tecnológica y chips de IA."
-        )
+        r_btc = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT", headers=headers, timeout=5).json()
+        btc_p = float(r_btc.get("lastPrice", 0))
+        btc_c = float(r_btc.get("priceChangePercent", 0))
+
+        r_eth = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT", headers=headers, timeout=5).json()
+        eth_p = float(r_eth.get("lastPrice", 0))
+        eth_c = float(r_eth.get("priceChangePercent", 0))
+
+        r_sol = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=SOLUSDT", headers=headers, timeout=5).json()
+        sol_p = float(r_sol.get("lastPrice", 0))
+        sol_c = float(r_sol.get("priceChangePercent", 0))
     except Exception as e:
-        print(f"⚠️ Error obteniendo cotizaciones: {e}", flush=True)
-        return (
-            f"📊 <b>MERCADOS & TECH</b>\n"
-            f"▫️ Mercado en consolidación con foco en infraestructura de Inteligencia Artificial."
-        )
+        print(f"⚠️ Error Binance API: {e}", flush=True)
+
+    # Índice Fear & Greed
+    try:
+        r_fng = requests.get("https://api.alternative.me/fng/", headers=headers, timeout=5).json()
+        fng_data = r_fng.get("data", [{}])[0]
+        fng_val = fng_data.get("value", "50")
+        fng_class = fng_data.get("value_classification", "Neutral")
+    except Exception as e:
+        print(f"⚠️ Error Fear & Greed API: {e}", flush=True)
+
+    btc_str = f"${btc_p:,.0f} ({btc_c:+.1f}%)" if btc_p > 0 else "N/A"
+    eth_str = f"${eth_p:,.0f} ({eth_c:+.1f}%)" if eth_p > 0 else "N/A"
+    sol_str = f"${sol_p:,.0f} ({sol_c:+.1f}%)" if sol_p > 0 else "N/A"
+
+    return (
+        f"📊 <b>MÉTRICAS DE MERCADO EN VIVO</b>\n"
+        f"▫️ <b>BTC:</b> {btc_str} | <b>ETH:</b> {eth_str} | <b>SOL:</b> {sol_str}\n"
+        f"▫️ <b>Sentimiento (Fear & Greed Index):</b> {fng_val}/100 ({fng_class})\n"
+        f"▫️ <b>Macro Tech:</b> Flujos orientados a escalabilidad de infraestructura de IA y semiconductores."
+    )
+
+# ------------------------------------------------------------------------------
+# LIMPIEZA AUTOMÁTICA DE MARKDOWN A HTML
+# ------------------------------------------------------------------------------
+def clean_markdown_to_html(text):
+    if not text:
+        return ""
+    # Convierte **texto** a <b>texto</b>
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    # Convierte *texto* a <i>texto</i>
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    return text
 
 # ------------------------------------------------------------------------------
 # TELEGRAM HELPERS
@@ -204,7 +236,7 @@ def health_check():
     return "Executive AI Digest Bot Activo 24/7", 200
 
 # ------------------------------------------------------------------------------
-# GENERACIÓN DEL BOLETÍN CONSOLIDADO (OPENAI CHIEF EDITOR)
+# GENERACIÓN DEL BOLETÍN CONSOLIDADO CON MÉTRICAS CLAVE
 # ------------------------------------------------------------------------------
 def generate_consolidated_digest(raw_articles, edition_title):
     market_header = fetch_live_market_data()
@@ -217,32 +249,35 @@ def generate_consolidated_digest(raw_articles, edition_title):
         articles_text += f"[{i}] Categ: {art['cat']} | Título: {art['title']} | Link: {art['link']}\nResumen: {art['desc'][:300]}\n---\n"
 
     prompt = f"""
-    Eres el Editor Jefe de 'Executive AI Digest', un boletín informativo VIP exclusivo para ejecutivos y fundadores.
-    A continuación tienes un lote de artículos recopilados de las principales fuentes internacionales:
+    Eres el Editor Jefe de 'Executive AI Digest', un boletín premium exclusivo para ejecutivos y fundadores.
+    A continuación tienes un lote de noticias internacionales recopiladas:
 
     {articles_text}
 
     TU TAREA:
-    Sintetiza la información en UN ÚNICO MENSAJE CONSOLIDADO en español con un tono analítico, moderno y ultra-conciso.
+    Sintetiza la información en UN ÚNICO MENSAJE CONSOLIDADO en español.
 
-    REGLAS DE ESTILO OBLIGATORIAS:
-    1. Usa ÚNICAMENTE etiquetas HTML válidas de Telegram (<b>, <i>, <a href="...">).
-    2. JAMÁS uses bloques de código ```.
-    3. Para el Radar Global: selecciona entre 6 y 8 noticias de VERDADERO IMPACTO. Descarta cualquier nota trivial, deportiva o publicitaria.
-    4. Cada titular del radar debe ser de MÁXIMO 1 o 2 renglones, directo al grano con negritas estratégicas y un hipervínculo HTML a su fuente original al final (ejemplo: <a href="LINK">[Fuente]</a>).
-    5. Agrega al final una sección de 'WORKFLOW / HERRAMIENTA IA DEL DÍA' con un consejo o app práctica aplicable.
+    REGLAS DE FORMATO ESTRICTAS:
+    1. Usa ÚNICAMENTE etiquetas HTML (<b>, <i>, <a href="...">).
+    2. JAMÁS uses asteriscos dobles ** ni bloques de código ```. Usa <b>texto</b> para resaltados en negrita.
+    3. Selecciona entre 6 y 8 noticias de VERDADERO IMPACTO TECNOLÓGICO Y FINANCIERO.
+    4. Cada noticia debe tener MÁXIMO 1 o 2 renglones, súper concisa, con hipervínculo HTML al final (ejemplo: <a href="LINK">[Fuente]</a>).
 
-    ESTRUCTURA REQUERIDA (Respetar exactamente):
+    ESTRUCTURA REQUERIDA:
     🗞️ <b>{edition_title}</b>
     🗓️ <i>{datetime.now().strftime('%d/%m/%Y')}</i>
 
     {market_header}
 
     ⚡ <b>RADAR GLOBAL DE NOTICIAS (EN 2 MINUTOS)</b>
-    [Agrupa aquí los 6-8 titulares sintéticos divididos por categoría]
+    [Agrupa aquí las 6-8 noticias seleccionadas divididas por subcategorías: 🤖 IA & Tech, 💼 Negocios & Startups, 📈 Cripto & Macro]
+
+    📈 <b>MÉTRICAS Y DATOS CLAVE DEL DÍA</b>
+    • <b>[Nombre de la Métrica 1]:</b> [Cifra / Porcentaje / Cierre de ronda / Dato numérico concreto derivado de las noticias]
+    • <b>[Nombre de la Métrica 2]:</b> [Dato concreto / Ciberseguridad / Inversión VC / Cómputo]
 
     🛠️ <b>WORKFLOW / HERRAMIENTA IA DEL DÍA</b>
-    📌 <b>[Nombre de la Herramienta o Tip]:</b> [1 o 2 oraciones sobre cómo aplicarla para ahorrar tiempo o mejorar procesos]
+    📌 <b>[Nombre de la Herramienta o Tip]:</b> [1 o 2 oraciones prácticas sobre cómo aplicar una app o prompt de IA para optimizar procesos]
 
     💡 <i>Executive AI Digest — Síntesis exclusiva para miembros VIP.</i>
     """
@@ -254,6 +289,7 @@ def generate_consolidated_digest(raw_articles, edition_title):
         )
         content = response.choices[0].message.content.strip()
 
+        # Limpiar bloques de código y convertir asteriscos a HTML <b>
         if content.startswith("```"):
             lines = content.splitlines()
             if lines[0].startswith("```"):
@@ -262,6 +298,7 @@ def generate_consolidated_digest(raw_articles, edition_title):
                 lines = lines[:-1]
             content = "\n".join(lines).strip()
 
+        content = clean_markdown_to_html(content)
         return content
     except Exception as e:
         print(f"⚠️ Error generando Digest Consolidado: {e}", flush=True)
@@ -274,7 +311,6 @@ def execute_daily_digest(edition_title):
 
     collected_articles = []
     
-    # Recopila hasta 15 noticias frescas de todas las fuentes
     for category, feeds in RSS_FEEDS.items():
         for feed_url in feeds:
             try:
@@ -317,13 +353,11 @@ def run_digest_scheduler():
         now_arg = datetime.utcnow() - timedelta(hours=3)
         today_str = now_arg.strftime("%Y-%m-%d")
 
-        # 08:00 AM Argentina
         if now_arg.hour == MORNING_HOUR_ARG and last_morning_date != today_str:
             print("🌅 Generando Edición Mañana...", flush=True)
             execute_daily_digest("EXECUTIVE AI DIGEST — EDICIÓN MAÑANA")
             last_morning_date = today_str
 
-        # 21:00 PM Argentina
         elif now_arg.hour == EVENING_HOUR_ARG and last_evening_date != today_str:
             print("🌙 Generando Edición Cierre...", flush=True)
             execute_daily_digest("EXECUTIVE AI DIGEST — EDICIÓN CIERRE")
