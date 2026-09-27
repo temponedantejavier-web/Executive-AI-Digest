@@ -55,15 +55,15 @@ except Exception:
 POSTED_NEWS_FILE = "posted_news.json"
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# Límite diario de publicaciones
-MAX_DAILY_POSTS = 5
-SCAN_INTERVAL_SECONDS = 1800  # Revisa fuentes cada 30 minutos
-
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 TG_BASE_URL = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN
 
+# HORARIOS DE RÁFAGA (Hora Argentina UTC-3)
+MORNING_HOUR_ARG = 8   # 08:00 AM -> Envia 3 noticias
+EVENING_HOUR_ARG = 21  # 21:00 PM -> Envia 2 noticias
+
 # ------------------------------------------------------------------------------
-# REPERTORIO DE FUENTES MULTI-NICHO DE ALTO NIVEL
+# REPERTORIO DE FUENTES MULTI-NICHO
 # ------------------------------------------------------------------------------
 RSS_FEEDS = {
     "🤖 <b>IA & TECNOLOGÍA</b>": [
@@ -102,7 +102,7 @@ def save_json_file(filename, data):
         print(f"❌ Error al guardar {filename}: {e}", flush=True)
 
 # ------------------------------------------------------------------------------
-# TELEGRAM HELPERS (SOPORTE HTML)
+# TELEGRAM HELPERS (FORMATO HTML)
 # ------------------------------------------------------------------------------
 def send_telegram_message(chat_id, text, reply_markup=None):
     if not TELEGRAM_BOT_TOKEN or not chat_id:
@@ -217,7 +217,6 @@ def generate_executive_digest_ai(category_html, title, description, raw_link):
         )
         content = response.choices[0].message.content.strip()
 
-        # Sanitización de bloques de código
         if content.startswith("```"):
             lines = content.splitlines()
             if lines[0].startswith("```"):
@@ -231,59 +230,65 @@ def generate_executive_digest_ai(category_html, title, description, raw_link):
         print(f"⚠️ Error OpenAI Digest: {e}", flush=True)
         return f"🗞️ {category_html}\n📌 <b>{title}</b>\n🔗 <a href='{raw_link}'>👉 Leer fuente original</a>"
 
-def count_posts_in_last_24h(posted_news_dict):
-    now = datetime.now()
-    count = 0
-    for news_id, timestamp_str in posted_news_dict.items():
-        try:
-            posted_at = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-            if now - posted_at < timedelta(hours=24):
-                count += 1
-        except Exception:
-            pass
-    return count
+def execute_news_burst(count_to_send, header_title):
+    posted_data = load_json_file(POSTED_NEWS_FILE, {})
+    if isinstance(posted_data, list):
+        posted_data = {nid: datetime.now().strftime("%Y-%m-%d %H:%M:%S") for nid in posted_data}
 
-def run_digest_scraper():
-    print("🚀 Hilo iniciado: Escáner Multi-Nicho de Noticias (Límite 4-5/día)", flush=True)
+    # Anuncio de la edición
+    send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, f"🌅 <b>{header_title}</b>\n<i>Aquí están las novedades clave seleccionadas por IA:</i>")
+    time.sleep(3)
+
+    sent_count = 0
+    for category, feeds in RSS_FEEDS.items():
+        if sent_count >= count_to_send:
+            break
+        for feed_url in feeds:
+            if sent_count >= count_to_send:
+                break
+            try:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries[:3]:
+                    news_id = entry.id if 'id' in entry else entry.link
+                    if news_id not in posted_data:
+                        summary_raw = BeautifulSoup(entry.summary, "html.parser").get_text() if hasattr(entry, 'summary') else ""
+                        post_html = generate_executive_digest_ai(category, entry.title, summary_raw, entry.link)
+                        
+                        res = send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, post_html)
+                        if res and res.get("ok"):
+                            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            posted_data[news_id] = now_str
+                            save_json_file(POSTED_NEWS_FILE, posted_data)
+                            sent_count += 1
+                            print(f"✅ Noticia enviada ({sent_count}/{count_to_send}): {entry.title}", flush=True)
+                            time.sleep(4) # Breve pausa entre mensajes de la ráfaga
+                            break
+            except Exception as e:
+                print(f"❌ Error feed {feed_url}: {e}", flush=True)
+
+def run_digest_scheduler():
+    print("🚀 Hilo iniciado: Programador de Ráfagas (08:00 AM y 21:00 PM Argentina)", flush=True)
+    last_morning_date = ""
+    last_evening_date = ""
+
     while True:
-        # Estructura de posted_news: {"id_noticia": "YYYY-MM-DD HH:MM:SS"}
-        posted_data = load_json_file(POSTED_NEWS_FILE, {})
-        if isinstance(posted_data, list):
-            # Migración de compatibilidad si existía formato antiguo de lista
-            posted_data = {nid: datetime.now().strftime("%Y-%m-%d %H:%M:%S") for nid in posted_data}
+        # Calcular la hora actual en Argentina (UTC-3)
+        now_arg = datetime.utcnow() - timedelta(hours=3)
+        today_str = now_arg.strftime("%Y-%m-%d")
 
-        posts_24h = count_posts_in_last_24h(posted_data)
+        # Ráfaga Mañana: 08:00 AM (3 noticias)
+        if now_arg.hour == MORNING_HOUR_ARG and last_morning_date != today_str:
+            print("🌅 Ejecutando Ráfaga de la Mañana (08:00 HS)...", flush=True)
+            execute_news_burst(3, "EDICIÓN MAÑANA — EXECUTIVE AI DIGEST")
+            last_morning_date = today_str
 
-        if posts_24h < MAX_DAILY_POSTS:
-            published_in_this_cycle = False
-            
-            for category, feeds in RSS_FEEDS.items():
-                if published_in_this_cycle or count_posts_in_last_24h(posted_data) >= MAX_DAILY_POSTS:
-                    break
+        # Ráfaga Noche: 21:00 PM (2 noticias)
+        elif now_arg.hour == EVENING_HOUR_ARG and last_evening_date != today_str:
+            print("🌙 Ejecutando Ráfaga de la Noche (21:00 HS)...", flush=True)
+            execute_news_burst(2, "EDICIÓN CIERRE — EXECUTIVE AI DIGEST")
+            last_evening_date = today_str
 
-                for feed_url in feeds:
-                    if published_in_this_cycle:
-                        break
-                    try:
-                        feed = feedparser.parse(feed_url)
-                        for entry in feed.entries[:3]:
-                            news_id = entry.id if 'id' in entry else entry.link
-                            if news_id not in posted_data:
-                                summary_raw = BeautifulSoup(entry.summary, "html.parser").get_text() if hasattr(entry, 'summary') else ""
-                                post_html = generate_executive_digest_ai(category, entry.title, summary_raw, entry.link)
-                                
-                                res = send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, post_html)
-                                if res and res.get("ok"):
-                                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    posted_data[news_id] = now_str
-                                    save_json_file(POSTED_NEWS_FILE, posted_data)
-                                    published_in_this_cycle = True
-                                    print(f"✅ Publicada noticia VIP: {entry.title}", flush=True)
-                                    break
-                    except Exception as e:
-                        print(f"❌ Error escaneando feed {feed_url}: {e}", flush=True)
-
-        time.sleep(SCAN_INTERVAL_SECONDS)
+        time.sleep(60) # Revisa el reloj cada 1 minuto
 
 # ------------------------------------------------------------------------------
 # LISTENER TELEGRAM Y CONTROL DE VENCIMIENTOS
@@ -317,7 +322,7 @@ def run_telegram_listener():
                     if text.lower() in ["/start", "/suscribirse", "suscribirme"]:
                         msg = (
                             f"🗞️ <b>EXECUTIVE AI DIGEST — CANAL VIP</b>\n\n"
-                            f"Accedé a 4-5 síntesis ejecutivas diarias de alto valor sobre IA, Negocios, Startups y Finanzas globales.\n\n"
+                            f"Accedé a 2 entregas diarias (08:00 y 21:00 HS) con las síntesis ejecutivas clave sobre IA, Negocios, Startups y Finanzas.\n\n"
                             f"💰 <b>Precio Suscripción:</b> ${SUBSCRIPTION_PRICE:,.0f} ARS / mes.\n\n"
                             f"📌 <b>Tu ID de Usuario:</b> <code>{chat_id}</code>"
                         )
@@ -327,6 +332,11 @@ def run_telegram_listener():
                             ]
                         }
                         send_telegram_message(chat_id, msg, reply_markup=reply_markup)
+
+                    # COMANDO DE PRUEBA RÁPIDA PARA ADMINISTRADOR: /burst
+                    elif text.startswith("/burst"):
+                        send_telegram_message(chat_id, "🚀 Generando ráfaga de prueba de 3 noticias en el canal VIP...")
+                        execute_news_burst(3, "EDICIÓN DE PRUEBA — EXECUTIVE AI DIGEST")
 
                     elif text.startswith("/activar"):
                         parts = text.split()
@@ -368,7 +378,7 @@ def run_expiration_checker():
 
 def start_background_threads():
     threading.Thread(target=run_telegram_listener, daemon=True).start()
-    threading.Thread(target=run_digest_scraper, daemon=True).start()
+    threading.Thread(target=run_digest_scheduler, daemon=True).start()
     threading.Thread(target=run_expiration_checker, daemon=True).start()
 
 start_background_threads()
