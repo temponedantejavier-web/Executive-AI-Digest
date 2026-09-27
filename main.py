@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 from flask import Flask, request, jsonify
 
-# Forzar logs en tiempo real en Render
+# Desactivar buffering para ver logs en tiempo real en Render
 sys.stdout.reconfigure(line_buffering=True)
 
 app = Flask(__name__)
@@ -59,28 +59,26 @@ client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 TG_BASE_URL = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN
 
 # HORARIOS DE RÁFAGA (Hora Argentina UTC-3)
-MORNING_HOUR_ARG = 8   # 08:00 AM -> Envia 3 noticias
-EVENING_HOUR_ARG = 21  # 21:00 PM -> Envia 2 noticias
+MORNING_HOUR_ARG = 8   # 08:00 AM -> 3 noticias de alto impacto
+EVENING_HOUR_ARG = 21  # 21:00 PM -> 2 noticias de cierre
 
 # ------------------------------------------------------------------------------
-# REPERTORIO DE FUENTES MULTI-NICHO
+# FUENTES DE ALTA SEÑAL (HIGH-SIGNAL RSS FEEDS)
 # ------------------------------------------------------------------------------
 RSS_FEEDS = {
-    "🤖 <b>IA & TECNOLOGÍA</b>": [
-        "https://techcrunch.com/category/artificial-intelligence/feed/",
-        "https://www.artificialintelligence-news.com/feed/",
-        "https://www.technologyreview.com/feed/"
+    "🤖 <b>IA & ESTRATEGIA TECNOLÓGICA</b>": [
+        "https://www.technologyreview.com/feed/",
+        "https://venturebeat.com/category/ai/feed/",
+        "https://arstechnica.com/technology/feed/"
     ],
-    "💼 <b>NEGOCIOS & STARTUPS</b>": [
-        "https://techcrunch.com/startups/feed/",
+    "💼 <b>NEGOCIOS & MACROECONOMÍA</b>": [
+        "https://techcrunch.com/category/startups/feed/",
+        "https://restofworld.org/feed/latest",
         "https://feeds.feedburner.com/entrepreneur/latest"
     ],
-    "📈 <b>FINANZAS & CRIPTO</b>": [
-        "https://www.cnbc.com/id/10000664/device/rss/rss.html",
-        "https://www.coindesk.com/arc/outboundfeeds/rss/"
-    ],
-    "🚀 <b>INNOVACIÓN & TENDENCIAS</b>": [
-        "https://www.wired.com/feed/rss"
+    "📈 <b>FINANZAS & CRIPTO ESTRUCTURAL</b>": [
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "https://www.cnbc.com/id/10000664/device/rss/rss.html"
     ]
 }
 
@@ -178,37 +176,35 @@ def health_check():
     return "Executive AI Digest Bot Activo 24/7", 200
 
 # ------------------------------------------------------------------------------
-# PROCESAMIENTO E IA (SÍNTESIS MULTI-NICHO)
+# PROCESAMIENTO ANALÍTICO E INTELIGENCIA DE NEGOCIOS
 # ------------------------------------------------------------------------------
 def generate_executive_digest_ai(category_html, title, description, raw_link):
     if not client:
-        return (
-            f"🗞️ {category_html}\n\n"
-            f"📌 <b>Novedad:</b> {title}\n"
-            f"📝 <b>Resumen:</b> {description[:200]}...\n\n"
-            f"🔗 <a href='{raw_link}'>👉 Leer artículo completo</a>"
-        )
+        return None
 
     prompt = f"""
-    Eres un analista ejecutivo sénior redactando para 'Executive AI Digest'.
-    Analiza la siguiente noticia internacional, tradúcela y sintetízala en ESPAÑOL fluido y profesional.
+    Eres un Analista Estratégico Senior de Tecnología, Macroeconomía y Negocios Globales.
+    Tu tarea es evaluar, traducir y sintetizar la siguiente noticia con rigor técnico y criterio analítico.
 
     Título original: {title}
     Texto original: {description}
     Enlace: {raw_link}
 
-    REGLAS OBLIGATORIAS DE FORMATO:
-    1. Responde ÚNICAMENTE usando etiquetas HTML válidas de Telegram (<b>, <i>, <a href="...">).
-    2. JAMÁS uses bloques de código (prohibido usar ```).
-    3. Redacción en ESPAÑOL corporativo, conciso y de alto nivel.
+    PASO 1: FILTRO EDITORIAL CRÍTICO
+    - Si la noticia es sobre deportes, farándula, notas de opinión personal, comunicados de prensa vacíos o no tiene un impacto tecnológico/financiero/empresarial real, responde ÚNICAMENTE con la palabra: DESCARTAR
 
-    Estructura exacta requerida:
+    PASO 2: REDACCIÓN ANALÍTICA DE ALTO NIVEL (Si pasa el filtro)
+    - Prohibido usar frases de relleno como "los ejecutivos deben considerar", "se abren oportunidades" o "es relevante para líderes".
+    - Enfócate en datos concretos, implicaciones técnicas, arquitectura de software, movimientos de capital o cambios normativos.
+    - Formato estrictamente en HTML de Telegram (<b>, <i>, <a href="...">). Sin bloques de código ```.
+
+    Estructura requerida:
     {category_html}
-    📌 <b>Novedad:</b> [Título/Acontecimiento clave traducido al español]
-    💡 <b>Impacto:</b> [1 o 2 oraciones sobre por qué le importa a un ejecutivo o emprendedor]
-    🎯 <b>Punto Clave / Acción:</b> [Conclusión práctica o tendencia derivada]
+    📌 <b>Acontecimiento Clave:</b> [Síntesis precisa del hecho técnico o financiero en 1-2 oraciones]
+    🔍 <b>Contexto e Impacto Estratégico:</b> [Por qué altera las reglas del juego. Mencioná cifras, arquitecturas, competidores o impacto en costos si aplica]
+    💡 <b>Perspectiva Futura:</b> [Análisis contemplativo sobre la tendencia a mediano/largo plazo que esto genera]
 
-    🔗 <a href="{raw_link}">👉 LEER FUENTE ORIGINAL</a>
+    🔗 <a href="{raw_link}">👉 LEER INFORME ORIGINAL</a>
     """
     try:
         response = client.chat.completions.create(
@@ -216,6 +212,10 @@ def generate_executive_digest_ai(category_html, title, description, raw_link):
             messages=[{"role": "user", "content": prompt}]
         )
         content = response.choices[0].message.content.strip()
+
+        # Si la IA determina que la noticia no tiene nivel ejecutivo, se descarta
+        if "DESCARTAR" in content.upper():
+            return "DESCARTAR"
 
         if content.startswith("```"):
             lines = content.splitlines()
@@ -228,15 +228,14 @@ def generate_executive_digest_ai(category_html, title, description, raw_link):
         return content
     except Exception as e:
         print(f"⚠️ Error OpenAI Digest: {e}", flush=True)
-        return f"🗞️ {category_html}\n📌 <b>{title}</b>\n🔗 <a href='{raw_link}'>👉 Leer fuente original</a>"
+        return "DESCARTAR"
 
 def execute_news_burst(count_to_send, header_title):
     posted_data = load_json_file(POSTED_NEWS_FILE, {})
     if isinstance(posted_data, list):
         posted_data = {nid: datetime.now().strftime("%Y-%m-%d %H:%M:%S") for nid in posted_data}
 
-    # Anuncio de la edición
-    send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, f"🌅 <b>{header_title}</b>\n<i>Aquí están las novedades clave seleccionadas por IA:</i>")
+    send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, f"🌅 <b>{header_title}</b>\n<i>Análisis estratégico de novedades globales seleccionadas por IA:</i>")
     time.sleep(3)
 
     sent_count = 0
@@ -248,47 +247,53 @@ def execute_news_burst(count_to_send, header_title):
                 break
             try:
                 feed = feedparser.parse(feed_url)
-                for entry in feed.entries[:3]:
+                for entry in feed.entries[:8]: # Revisa hasta 8 noticias por feed buscando calidad
                     news_id = entry.id if 'id' in entry else entry.link
                     if news_id not in posted_data:
                         summary_raw = BeautifulSoup(entry.summary, "html.parser").get_text() if hasattr(entry, 'summary') else ""
+                        
+                        # Generación con Filtro Editorial
                         post_html = generate_executive_digest_ai(category, entry.title, summary_raw, entry.link)
                         
+                        # Si fue descartada por falta de relevancia, pasa a la siguiente noticia
+                        if not post_html or post_html == "DESCARTAR":
+                            print(f"⏩ Noticia descartada por bajo valor ejecutivo: {entry.title}", flush=True)
+                            posted_data[news_id] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            save_json_file(POSTED_NEWS_FILE, posted_data)
+                            continue
+
                         res = send_telegram_message(TELEGRAM_VIP_CHANNEL_ID, post_html)
                         if res and res.get("ok"):
                             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             posted_data[news_id] = now_str
                             save_json_file(POSTED_NEWS_FILE, posted_data)
                             sent_count += 1
-                            print(f"✅ Noticia enviada ({sent_count}/{count_to_send}): {entry.title}", flush=True)
-                            time.sleep(4) # Breve pausa entre mensajes de la ráfaga
+                            print(f"✅ Noticia de alto valor enviada ({sent_count}/{count_to_send}): {entry.title}", flush=True)
+                            time.sleep(4)
                             break
             except Exception as e:
                 print(f"❌ Error feed {feed_url}: {e}", flush=True)
 
 def run_digest_scheduler():
-    print("🚀 Hilo iniciado: Programador de Ráfagas (08:00 AM y 21:00 PM Argentina)", flush=True)
+    print("🚀 Hilo iniciado: Programador de Ráfagas con Filtro Editorial", flush=True)
     last_morning_date = ""
     last_evening_date = ""
 
     while True:
-        # Calcular la hora actual en Argentina (UTC-3)
         now_arg = datetime.utcnow() - timedelta(hours=3)
         today_str = now_arg.strftime("%Y-%m-%d")
 
-        # Ráfaga Mañana: 08:00 AM (3 noticias)
         if now_arg.hour == MORNING_HOUR_ARG and last_morning_date != today_str:
             print("🌅 Ejecutando Ráfaga de la Mañana (08:00 HS)...", flush=True)
             execute_news_burst(3, "EDICIÓN MAÑANA — EXECUTIVE AI DIGEST")
             last_morning_date = today_str
 
-        # Ráfaga Noche: 21:00 PM (2 noticias)
         elif now_arg.hour == EVENING_HOUR_ARG and last_evening_date != today_str:
             print("🌙 Ejecutando Ráfaga de la Noche (21:00 HS)...", flush=True)
             execute_news_burst(2, "EDICIÓN CIERRE — EXECUTIVE AI DIGEST")
             last_evening_date = today_str
 
-        time.sleep(60) # Revisa el reloj cada 1 minuto
+        time.sleep(60)
 
 # ------------------------------------------------------------------------------
 # LISTENER TELEGRAM Y CONTROL DE VENCIMIENTOS
@@ -322,7 +327,7 @@ def run_telegram_listener():
                     if text.lower() in ["/start", "/suscribirse", "suscribirme"]:
                         msg = (
                             f"🗞️ <b>EXECUTIVE AI DIGEST — CANAL VIP</b>\n\n"
-                            f"Accedé a 2 entregas diarias (08:00 y 21:00 HS) con las síntesis ejecutivas clave sobre IA, Negocios, Startups y Finanzas.\n\n"
+                            f"Accedé a 2 entregas diarias (08:00 y 21:00 HS) con análisis estratégicos de alto valor sobre IA, Negocios y Finanzas.\n\n"
                             f"💰 <b>Precio Suscripción:</b> ${SUBSCRIPTION_PRICE:,.0f} ARS / mes.\n\n"
                             f"📌 <b>Tu ID de Usuario:</b> <code>{chat_id}</code>"
                         )
@@ -333,10 +338,9 @@ def run_telegram_listener():
                         }
                         send_telegram_message(chat_id, msg, reply_markup=reply_markup)
 
-                    # COMANDO DE PRUEBA RÁPIDA PARA ADMINISTRADOR: /burst
                     elif text.startswith("/burst"):
-                        send_telegram_message(chat_id, "🚀 Generando ráfaga de prueba de 3 noticias en el canal VIP...")
-                        execute_news_burst(3, "EDICIÓN DE PRUEBA — EXECUTIVE AI DIGEST")
+                        send_telegram_message(chat_id, "🚀 Ejecutando ráfaga analítica con filtro editorial...")
+                        execute_news_burst(3, "EDICIÓN ANALÍTICA — EXECUTIVE AI DIGEST")
 
                     elif text.startswith("/activar"):
                         parts = text.split()
