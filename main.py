@@ -106,26 +106,30 @@ def save_json_file(filename, data):
 # ------------------------------------------------------------------------------
 def fetch_live_market_data():
     headers = {"User-Agent": "Mozilla/5.0"}
-    btc_p, btc_c = 0.0, 0.0
-    eth_p, eth_c = 0.0, 0.0
-    sol_p, sol_c = 0.0, 0.0
-    fng_val, fng_class = "N/A", "N/A"
+    btc_str, eth_str, sol_str = "N/A", "N/A", "N/A"
+    fng_val, fng_class = "50", "Neutral"
 
-    # Precios Cripto vía Binance API
+    # Precios Cripto vía Coinbase API (sin bloqueo de IP)
     try:
-        r_btc = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT", headers=headers, timeout=5).json()
-        btc_p = float(r_btc.get("lastPrice", 0))
-        btc_c = float(r_btc.get("priceChangePercent", 0))
-
-        r_eth = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT", headers=headers, timeout=5).json()
-        eth_p = float(r_eth.get("lastPrice", 0))
-        eth_c = float(r_eth.get("priceChangePercent", 0))
-
-        r_sol = requests.get("https://api.binance.com/api/v3/ticker/24hr?symbol=SOLUSDT", headers=headers, timeout=5).json()
-        sol_p = float(r_sol.get("lastPrice", 0))
-        sol_c = float(r_sol.get("priceChangePercent", 0))
+        r_btc = requests.get("https://api.coinbase.com/v2/prices/BTC-USD/spot", timeout=5).json()
+        btc_p = float(r_btc["data"]["amount"])
+        btc_str = f"${btc_p:,.0f}"
     except Exception as e:
-        print(f"⚠️ Error Binance API: {e}", flush=True)
+        print(f"⚠️ Error BTC Coinbase: {e}", flush=True)
+
+    try:
+        r_eth = requests.get("https://api.coinbase.com/v2/prices/ETH-USD/spot", timeout=5).json()
+        eth_p = float(r_eth["data"]["amount"])
+        eth_str = f"${eth_p:,.0f}"
+    except Exception as e:
+        print(f"⚠️ Error ETH Coinbase: {e}", flush=True)
+
+    try:
+        r_sol = requests.get("https://api.coinbase.com/v2/prices/SOL-USD/spot", timeout=5).json()
+        sol_p = float(r_sol["data"]["amount"])
+        sol_str = f"${sol_p:,.0f}"
+    except Exception as e:
+        print(f"⚠️ Error SOL Coinbase: {e}", flush=True)
 
     # Índice Fear & Greed
     try:
@@ -136,17 +140,12 @@ def fetch_live_market_data():
     except Exception as e:
         print(f"⚠️ Error Fear & Greed API: {e}", flush=True)
 
-    btc_str = f"${btc_p:,.0f} ({btc_c:+.1f}%)" if btc_p > 0 else "N/A"
-    eth_str = f"${eth_p:,.0f} ({eth_c:+.1f}%)" if eth_p > 0 else "N/A"
-    sol_str = f"${sol_p:,.0f} ({sol_c:+.1f}%)" if sol_p > 0 else "N/A"
-
     return (
         f"📊 <b>MÉTRICAS DE MERCADO EN VIVO</b>\n"
         f"▫️ <b>BTC:</b> {btc_str} | <b>ETH:</b> {eth_str} | <b>SOL:</b> {sol_str}\n"
-        f"▫️ <b>Sentimiento (Fear & Greed Index):</b> {fng_val}/100 ({fng_class})\n"
-        f"▫️ <b>Macro Tech:</b> Flujos orientados a escalabilidad de infraestructura de IA y semiconductores."
+        f"▫️ <b>Sentimiento (Fear & Greed):</b> {fng_val}/100 ({fng_class})\n"
+        f"▫️ <b>Macro Tech:</b> Flujos orientados a infraestructura de IA y semiconductores."
     )
-
 # ------------------------------------------------------------------------------
 # LIMPIEZA AUTOMÁTICA DE MARKDOWN A HTML
 # ------------------------------------------------------------------------------
